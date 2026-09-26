@@ -1,0 +1,3 @@
+yt-dlp
+Unidecode
+yt-dlp-ejs

@@ -87,6 +87,12 @@ DEVICE_PROFILES = {
         "max_fps": 30,
         "abr": "128k",
         "crf": "21",
+        # Round the width to a multiple of 16 so it lands on whole H.264
+        # macroblocks. A 16:9 source would otherwise scale to 854 wide, which
+        # forces the encoder to pad and signal a crop -- something the cheap
+        # decoders this profile targets sometimes render with green edges.
+        # 848 instead of 854 is a 0.6% aspect change, invisible in practice.
+        "align": 16,
     },
     "4": {
         "name": "Original (no conversion)",
@@ -312,7 +318,11 @@ def make_compatible(src, dst, target):
         ]
         height = int((v or {}).get("height") or 0)
         if height > target["height"]:
-            cmd += ["-vf", "scale=-2:%d" % target["height"]]
+            # A negative width tells ffmpeg to keep the aspect ratio and round
+            # to a multiple of that number -- 2 normally, 16 where macroblock
+            # alignment buys extra decoder compatibility.
+            cmd += ["-vf", "scale=-%d:%d" % (target.get("align", 2),
+                                             target["height"])]
         if frame_rate(v or {}) > target["max_fps"] + 1:
             cmd += ["-r", str(target["max_fps"])]
 

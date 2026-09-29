@@ -83,7 +83,18 @@ DEVICE_PROFILES = {
         "blurb": "H.264 Baseline + AAC. Last resort for very old players and car screens.",
         "height": 480,
         "x264_profile": "baseline",
+        # YouTube only ever serves Main at 480p, never Baseline. Demanding
+        # Baseline here would force a full re-encode on every single download
+        # for a compatibility gain that barely exists any more -- Main has
+        # been decodable by essentially every chip since the mid-2000s. So
+        # accept Main as-is (instant remux), and only fall back to encoding
+        # Baseline when the source is VP9/AV1 and we must re-encode anyway.
+        "accept_profile": "main",
         "level": 30,
+        # Same reasoning for the level: YouTube tags 480p as L3.1, and L3.1 is
+        # universally supported (it is what plain 720p needs). Accept it rather
+        # than re-encoding just to relabel it as L3.0.
+        "accept_level": 31,
         "max_fps": 30,
         "abr": "128k",
         "crf": "21",
@@ -240,7 +251,11 @@ def probe_media(path):
     streams = data.get("streams", [])
     video = next((s for s in streams if s.get("codec_type") == "video"), None)
     audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
-    return {"video": video, "audio": audio}
+    try:
+        duration = float((data.get("format") or {}).get("duration") or 0)
+    except (TypeError, ValueError):
+        duration = 0.0
+    return {"video": video, "audio": audio, "duration": duration}
 
 
 def frame_rate(stream):
@@ -260,14 +275,17 @@ def video_is_ok(v, target):
         return False
     if v.get("pix_fmt") != "yuv420p":                  # 10-bit / 4:2:2 breaks TVs
         return False
+    # What we tolerate without re-encoding can be looser than what we encode
+    # to when a re-encode is unavoidable -- see "accept_profile" below.
+    accept = target.get("accept_profile") or target["x264_profile"]
     rank = PROFILE_RANK.get(str(v.get("profile") or "").lower())
-    if rank is None or rank > PROFILE_RANK[target["x264_profile"]]:
+    if rank is None or rank > PROFILE_RANK[accept]:
         return False
     try:
         level = int(v.get("level") or 99)
     except (TypeError, ValueError):
         return False
-    if level > target["level"]:
+    if level > (target.get("accept_level") or target["level"]):
         return False
     if int(v.get("height") or 0) > target["height"]:
         return False
@@ -290,6 +308,46 @@ def audio_is_ok(a, target):
 # conversion
 # ---------------------------------------------------------------------------
 
+def run_ffmpeg(cmd, duration, label):
+    """
+    Run ffmpeg while reporting how far along it is.
+
+    Re-encoding a 45-minute episode takes minutes. Without this the screen
+    sits on a single frozen line and looks like it has hung, which is the
+    single most common reason to think the tool has crashed.
+
+    stderr goes to a temporary file rather than a pipe: reading only stdout
+    while stderr fills its OS buffer would deadlock.
+    """
+    import tempfile
+
+    with tempfile.TemporaryFile(mode="w+", encoding="utf-8",
+                                errors="replace") as errors:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=errors,
+                                text=True, bufsize=1)
+        speed, micros = "", 0
+        for line in proc.stdout:
+            key, _, value = line.strip().partition("=")
+            value = value.strip()
+            if key == "speed":
+                speed = value
+            elif key in ("out_time_us", "out_time_ms"):
+                # Both carry microseconds; out_time_ms is a historical
+                # misnomer. ffmpeg emits both, so only record here.
+                if value.lstrip("-").isdigit():
+                    micros = int(value)
+            elif key == "progress" and duration > 0:
+                # One "progress=" line closes each block, so printing here
+                # gives exactly one update per block rather than one per key.
+                pct = min(100.0, max(0.0, micros / 1e6 / duration * 100))
+                print("\r    %s %5.1f%%   %-8s      " % (label, pct, speed),
+                      end="", flush=True)
+        proc.stdout.close()
+        proc.wait()
+        errors.seek(0)
+        return proc.returncode, errors.read()
+
+
 def make_compatible(src, dst, target):
     """
     Remux when the streams are already fine (instant, zero quality loss),
@@ -302,7 +360,10 @@ def make_compatible(src, dst, target):
     v, a = info["video"], info["audio"]
     v_ok, a_ok = video_is_ok(v, target), audio_is_ok(a, target)
 
-    cmd = [FFMPEG, "-y", "-v", "error", "-stats", "-i", str(src)]
+    # -progress writes machine-readable status to stdout so we can show how
+    # far along a long re-encode is.
+    cmd = [FFMPEG, "-y", "-v", "error", "-nostats",
+           "-progress", "pipe:1", "-i", str(src)]
 
     if v_ok:
         cmd += ["-c:v", "copy"]
@@ -313,7 +374,9 @@ def make_compatible(src, dst, target):
             "-level", "%.1f" % (target["level"] / 10.0),
             "-pix_fmt", "yuv420p",
             "-crf", target["crf"],
-            "-preset", "medium",
+            # "medium" spends minutes shaving a few MB off a file headed for a
+            # USB stick. At the counter, time matters far more than size.
+            "-preset", "veryfast",
             "-g", "60",                                # helps seeking on dumb players
         ]
         height = int((v or {}).get("height") or 0)
@@ -342,9 +405,10 @@ def make_compatible(src, dst, target):
     else:
         action = "video and audio both converted"
 
-    result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
-    if result.returncode != 0:
-        return None, (result.stderr or "ffmpeg failed").strip()[-400:]
+    label = "remuxing" if (v_ok and a_ok) else "converting"
+    code, errors = run_ffmpeg(cmd, info.get("duration") or 0.0, label)
+    if code != 0:
+        return None, (errors or "ffmpeg failed").strip()[-400:]
     return action, None
 
 

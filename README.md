@@ -61,6 +61,27 @@ python ytshop.py "https://www.youtube.com/playlist?list=..."
 Playlists are detected automatically, and files are numbered `01 - `, `02 - `
 so they stay in order on the stick.
 
+### Video or audio
+
+Every link first asks what you want:
+
+```
+  What do you want?
+
+    1. Video  (MP4 for a TV or USB player)
+    2. Audio  (MP3 for a phone, car stereo or speaker)
+```
+
+Choosing **audio** skips the resolution questions entirely and produces a
+**192 kbps MP3, 44.1 kHz stereo** — the combination car stereos, cheap USB
+players and older phones are happiest with. It works on whole playlists too,
+so an album or a series of songs comes out as a numbered folder of MP3s.
+
+The **title and artist are written as ID3v2.3 tags**, taken from the video
+title and the uploader, so a car stereo shows the track name instead of a
+blank display. Version 2.3 rather than the newer 2.4 on purpose: plenty of
+dashboard units show nothing at all for 2.4 tags.
+
 ### Picking part of a playlist
 
 A playlist first asks which videos you want, so you don't have to take all 200

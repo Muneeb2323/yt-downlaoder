@@ -117,6 +117,17 @@ DEVICE_PROFILES = {
     },
 }
 
+# Audio-only jobs. MP3 rather than the m4a YouTube actually serves, because
+# car stereos, cheap USB players and old phones all read MP3 and a fair
+# number still refuse m4a. 192 kbps CBR at 44.1 kHz is the combination those
+# players are happiest with.
+AUDIO_PROFILE = {
+    "name": "Audio only (MP3)",
+    "audio": True,
+    "height": None,
+    "abr": "192k",
+}
+
 FFMPEG = None
 FFPROBE = None
 
@@ -412,10 +423,54 @@ def make_compatible(src, dst, target):
     return action, None
 
 
+def make_mp3(src, dst, target, title=None, artist=None):
+    """
+    Turn the downloaded audio into an MP3.
+
+    ID3v2.3 rather than the newer 2.4 -- plenty of car stereos and older
+    players show nothing at all for 2.4 tags, and a blank display on the
+    dashboard is exactly the sort of thing that comes back as a complaint.
+    """
+    probe = probe_media(src) or {}
+    duration = probe.get("duration") or 0.0
+
+    cmd = [FFMPEG, "-y", "-v", "error", "-nostats", "-progress", "pipe:1",
+           "-i", str(src),
+           "-vn",                          # drop cover art / any video stream
+           "-c:a", "libmp3lame",
+           "-b:a", target["abr"],
+           "-ar", "44100",
+           "-ac", "2",
+           "-id3v2_version", "3"]
+    if title:
+        cmd += ["-metadata", "title=%s" % title]
+    if artist:
+        cmd += ["-metadata", "artist=%s" % artist]
+    cmd += [str(dst)]
+
+    code, errors = run_ffmpeg(cmd, duration, "making mp3")
+    if code != 0:
+        return None, (errors or "ffmpeg failed").strip()[-400:]
+    return "converted to MP3 %s" % target["abr"], None
+
+
 def verify(path):
     info = probe_media(path)
-    if not info or not info.get("video"):
+    if not info:
         return "could not verify"
+
+    if not info.get("video"):                       # audio-only file
+        a = info.get("audio") or {}
+        if not a:
+            return "could not verify"
+        kbps = ""
+        try:
+            kbps = " %dk" % (int(a.get("bit_rate") or 0) / 1000)
+        except (TypeError, ValueError):
+            pass
+        return "%s%s %sHz %sch" % (a.get("codec_name"), kbps,
+                                   a.get("sample_rate"), a.get("channels"))
+
     v = info["video"]
     a = info.get("audio") or {}
     return "%s %s@L%s %sp %s / %s %sch" % (
@@ -537,8 +592,15 @@ def download_one(url, target, index=None, dest=None, pad=2):
     RAW_DIR.mkdir(exist_ok=True)
     dest.mkdir(parents=True, exist_ok=True)
 
+    if target.get("audio"):
+        # Prefer YouTube's AAC track as the source: it is the one served most
+        # reliably, and it transcodes to MP3 cleanly.
+        wanted = "bestaudio[acodec^=mp4a]/bestaudio/best"
+    else:
+        wanted = format_selector(target["height"])
+
     opts = {
-        "format": format_selector(target["height"]),
+        "format": wanted,
         "merge_output_format": "mp4",
         "outtmpl": str(RAW_DIR / "%(id)s.%(ext)s"),
         "quiet": True,
@@ -571,6 +633,18 @@ def download_one(url, target, index=None, dest=None, pad=2):
         # Pad to the width of the largest position, otherwise a 100+ video
         # playlist sorts 1, 10, 100, 2 on the TV's file browser.
         stem = "%0*d - %s" % (pad, index, stem)
+    if target.get("audio"):
+        final = dest / (stem + ".mp3")
+        action, err = make_mp3(
+            raw, final, target,
+            title=info.get("title"),
+            artist=info.get("uploader") or info.get("channel"))
+        try:
+            raw.unlink()
+        except OSError:
+            pass
+        return (None, err) if err else (final, action)
+
     final = dest / (stem + ".mp4")
 
     if target["height"] is None:                       # "Original" -- keep untouched
@@ -660,6 +734,14 @@ def pick_range(total):
             return picked
         print("    Could not use that. Valid positions are 1-%d,"
               " e.g.  1-5  or  3,7,9" % total)
+
+
+def pick_media_type():
+    print("\n  What do you want?\n")
+    print("    1. Video  (MP4 for a TV or USB player)")
+    print("    2. Audio  (MP3 for a phone, car stereo or speaker)")
+    print()
+    return ask("  Choose 1-2 [default 1]: ", ["1", "2"], "1")
 
 
 def pick_device_profile():
@@ -778,12 +860,16 @@ def main():
     else:
         print("  Video: %s" % info.get("title"))
 
+    media = pick_media_type()
+
     picked = pick_range(len(entries)) if is_playlist else None
 
-    target = pick_device_profile()
-
-    if not is_playlist and target["height"] is not None:
-        target = pick_height(fetch_info(url), target)
+    if media == "2":
+        target = AUDIO_PROFILE          # no resolution questions for audio
+    else:
+        target = pick_device_profile()
+        if not is_playlist and target["height"] is not None:
+            target = pick_height(fetch_info(url), target)
 
     if is_playlist:
         # Keep each video's ORIGINAL playlist position in the filename, so a

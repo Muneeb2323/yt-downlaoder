@@ -115,22 +115,17 @@ Downloads\
   2026 Total Solar Eclipse\
     01 - 2026 Total Solar Eclipse (Official NASA Trailer).mp4
     02 - Chasing Solar Eclipses With NASA Pilots.mp4
-    titles.txt
   Me at the zoo.mp4
-  titles.txt
 ```
 
-`titles.txt` only appears **when it's actually needed** — that is, when the
-filename lost something on the way to ASCII:
+Nothing else is written — no index files, just the videos.
 
-- a non-Latin title that had to be transliterated (Hindi, Urdu, Arabic,
-  Chinese), where `hiNdii gaane` on disk won't tell you much
-- accented text where the accents were stripped
-- a very long title cut short to fit
-
-English titles survive intact, so no index file is written at all — the
-filename already says everything, and there's no stray `.txt` cluttering the
-stick. Re-running a playlist won't add duplicate lines to an existing one.
+The **original title and the uploader are stored inside each file** as
+metadata, for MP4 and MP3 alike. Explorer shows them in its Title and
+Contributing artists columns, and most players display them too. So when a
+non-Latin title gets transliterated into something like `hiNdii gaane` on
+disk, what the video was actually called still travels with the file — and
+there's no stray `.txt` cluttering the stick.
 
 Numbering widens to fit the playlist: under 100 videos you get `01 - `, and
 over 100 you get `001 - `, so the TV's file browser sorts them properly

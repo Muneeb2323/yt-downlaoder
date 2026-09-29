@@ -229,20 +229,6 @@ def ascii_name(title, fallback):
     return flat[:90].strip(" .")
 
 
-def index_worth_keeping(title, stem):
-    """
-    titles.txt only earns its place when the filename actually lost something
-    -- a transliterated title, or one truncated for length. An English title
-    survives intact, so the name on disk already says everything and the extra
-    file is just clutter on the stick.
-    """
-    if any(ord(ch) > 127 for ch in title):          # transliterated away
-        return True
-    bare = lambda s: re.sub(r"[^a-z0-9]", "", s.lower())
-    # Ignore the leading playlist number when comparing.
-    return bare(title) != bare(re.sub(r"^\d+\s*-\s*", "", stem))
-
-
 # ---------------------------------------------------------------------------
 # inspection
 # ---------------------------------------------------------------------------
@@ -359,7 +345,7 @@ def run_ffmpeg(cmd, duration, label):
         return proc.returncode, errors.read()
 
 
-def make_compatible(src, dst, target):
+def make_compatible(src, dst, target, title=None, artist=None):
     """
     Remux when the streams are already fine (instant, zero quality loss),
     and re-encode only the stream that actually needs it.
@@ -404,6 +390,15 @@ def make_compatible(src, dst, target):
         cmd += ["-c:a", "copy"]
     else:
         cmd += ["-c:a", "aac", "-b:a", target["abr"], "-ar", "48000", "-ac", "2"]
+
+    # Carry the original title in the file's own metadata. Explorer and most
+    # players show it, so a heavily transliterated filename no longer loses
+    # what the video was actually called -- which is what the old titles.txt
+    # index existed to preserve.
+    if title:
+        cmd += ["-metadata", "title=%s" % title]
+    if artist:
+        cmd += ["-metadata", "artist=%s" % artist]
 
     cmd += ["-movflags", "+faststart", str(dst)]       # moov atom to the front
 
@@ -652,7 +647,10 @@ def download_one(url, target, index=None, dest=None, pad=2):
         raw.replace(kept)
         return kept, "kept original (not converted)"
 
-    action, err = make_compatible(raw, final, target)
+    action, err = make_compatible(
+        raw, final, target,
+        title=info.get("title"),
+        artist=info.get("uploader") or info.get("channel"))
     try:
         raw.unlink()
     except OSError:
@@ -774,28 +772,13 @@ def pick_height(info, target):
     return target
 
 
-def report(path, note, title):
+def report(path, note):
     size_mb = path.stat().st_size / 1024.0 ** 2
     print("\r    OK  %s" % path.name)
     print("        %s" % note)
     print("        %s  |  %.1f MB" % (verify(path), size_mb))
     if path.stat().st_size > FAT32_LIMIT:
         print("        WARNING: over 4 GB -- will not copy onto a FAT32 USB stick.")
-    if not index_worth_keeping(title, path.stem):
-        return
-
-    # Sits alongside the files it describes, so each playlist folder carries
-    # its own index. Skip the write if it's already listed, otherwise
-    # re-running a playlist stacks up duplicate lines.
-    index_file = path.parent / "titles.txt"
-    line = "%s\t%s\n" % (path.name, title)
-    try:
-        listed = index_file.read_text(encoding="utf-8") if index_file.exists() else ""
-    except OSError:
-        listed = ""
-    if line not in listed:
-        with index_file.open("a", encoding="utf-8") as fh:
-            fh.write(line)
 
 
 def main():
@@ -907,7 +890,7 @@ def main():
             else:
                 path, note = None, str(exc).splitlines()[0][:160]
         if path:
-            report(path, note, title)
+            report(path, note)
             ok += 1
         else:
             print("\r    FAILED  %s" % note)

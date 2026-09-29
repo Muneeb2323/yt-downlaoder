@@ -1,0 +1,73 @@
+name: Build Windows exe
+
+on:
+  push:
+    branches: [main]
+  # Rebuild weekly. yt-dlp is bundled into the exe, and YouTube changes often
+  # enough that a months-old yt-dlp is the usual reason downloads stop working.
+  # A scheduled rebuild keeps the published exe no more than a week behind.
+  schedule:
+    - cron: "0 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Sanity-check the sources before bundling
+        run: |
+          python -m py_compile ytshop.py setup.py
+
+      # --collect-all yt_dlp is required: yt-dlp loads its extractors
+      # dynamically, so PyInstaller's static analysis misses nearly all of
+      # them and the exe would build fine but fail on every link.
+      - name: Build exe
+        run: >
+          python -m PyInstaller --noconfirm --onefile --console
+          --name ytshop
+          --collect-all yt_dlp
+          --collect-all yt_dlp_ejs
+          --hidden-import setup
+          --hidden-import unidecode
+          ytshop.py
+
+      - name: Check the exe actually starts
+        shell: bash
+        run: |
+          # No link given: it should print its banner and exit cleanly rather
+          # than crash, which catches a missing bundled import.
+          echo "" | ./dist/ytshop.exe || true
+          test -f dist/ytshop.exe
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ytshop-windows
+          path: dist/ytshop.exe
+
+      - name: Publish to the rolling "latest" release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create latest \
+            --title "ytshop (latest build)" \
+            --notes "Latest Windows build. Download **ytshop.exe**, put it in an empty folder and run it. On first launch it downloads ffmpeg and Deno itself; after that it starts straight away. No Python needed." \
+            || echo "release already exists"
+          gh release upload latest dist/ytshop.exe --clobber

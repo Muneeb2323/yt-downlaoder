@@ -286,11 +286,32 @@ is actually offered. That is a YouTube-side restriction, not something the
 tool or a different setting can raise. Tracked upstream at
 `yt-dlp/yt-dlp#12482`.
 
-## Requirements
+## Setting up on a new PC
+
+### The easy way — just the exe
+
+Download **`ytshop.exe`** from the
+[latest release](https://github.com/Muneeb2323/yt-downlaoder/releases/latest),
+put it in an empty folder, and run it.
+
+**No Python, no install, nothing to configure.** On its first launch it
+fetches ffmpeg and Deno by itself, which takes a few minutes; every launch
+after that starts immediately.
+
+Keep it in **its own folder** — it creates `Downloads\`, `bin\` and looks for
+`cookies.txt` right beside itself.
+
+GitHub rebuilds the exe on every change and again every Monday, so the
+published build never carries a yt-dlp more than a week old.
+
+> Windows SmartScreen will likely warn about an unrecognised app, because the
+> exe isn't code-signed (signing certificates cost money). Choose **More
+> info → Run anyway**.
+
+### The developer way — from source
 
 Install **Python 3.8+** from [python.org](https://www.python.org/downloads/),
-ticking **"Add python.exe to PATH"** on the first screen. That is the only
-manual step.
+ticking **"Add python.exe to PATH"** on the first screen.
 
 Then clone the repo and double-click **Download.bat**. It runs `setup.py`
 first, which installs everything else:

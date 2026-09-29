@@ -30,6 +30,11 @@ except ImportError:
     sys.exit("yt-dlp is missing.  Install it with:  pip install -U yt-dlp")
 
 try:
+    import setup as bootstrap            # ffmpeg / Deno installers, reused
+except ImportError:                      # pragma: no cover
+    bootstrap = None
+
+try:
     # Optional -- gives readable filenames for non-Latin titles. The
     # "type: ignore" is for editors that indexed this folder before the
     # package was installed and keep reporting it as missing; the fallback
@@ -38,7 +43,20 @@ try:
 except ImportError:
     unidecode = None
 
-HERE = Path(__file__).resolve().parent
+def _base_dir():
+    """
+    Where bin\\, cookies.txt and Downloads\\ live.
+
+    Frozen into an exe, __file__ points inside PyInstaller's temporary
+    extraction folder, which is wiped on exit. The folder holding the exe is
+    what the user actually sees, so anchor everything there instead.
+    """
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+HERE = _base_dir()
 OUT_DIR = HERE / "Downloads"
 RAW_DIR = HERE / "_raw"
 
@@ -202,6 +220,36 @@ def ensure_js_runtime():
             os.environ["PATH"] = str(deno.parent) + os.pathsep + os.environ.get("PATH", "")
             return True
     return False
+
+
+def ensure_dependencies():
+    """
+    Fetch anything missing before we need it.
+
+    Running from the exe there is no Download.bat to run setup first, so the
+    first launch on a new PC has to fetch ffmpeg and Deno itself. Costs
+    nothing once they are present.
+    """
+    from shutil import which
+
+    need_ffmpeg = not ((HERE / "bin" / "ffmpeg.exe").exists()
+                       and (HERE / "bin" / "ffprobe.exe").exists()) \
+        and not (which("ffmpeg") and which("ffprobe"))
+    need_deno = not ensure_js_runtime()
+
+    if not (need_ffmpeg or need_deno):
+        return
+
+    if bootstrap is None:
+        return                              # find_tool will report it plainly
+
+    print("\n  First run on this PC -- setting things up.\n")
+    if need_ffmpeg:
+        bootstrap.install_ffmpeg()
+    if need_deno:
+        bootstrap.install_deno()
+        ensure_js_runtime()                 # pick up the freshly installed one
+    print()
 
 
 # ---------------------------------------------------------------------------
@@ -783,12 +831,16 @@ def report(path, note):
 
 def main():
     global FFMPEG, FFPROBE
-    FFMPEG = find_tool("ffmpeg")
-    FFPROBE = find_tool("ffprobe")
 
     print("\n" + "=" * 68)
     print("  ytshop -- YouTube downloader with real device compatibility")
     print("=" * 68)
+
+    ensure_dependencies()                   # first run on a new PC
+
+    FFMPEG = find_tool("ffmpeg")
+    FFPROBE = find_tool("ffprobe")
+
     if not ensure_js_runtime():
         print("\n  WARNING: no JavaScript runtime (Deno) found.")
         print("  YouTube needs one to unlock stream URLs. Without it downloads")

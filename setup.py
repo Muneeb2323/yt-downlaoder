@@ -20,7 +20,15 @@ import sys
 import zipfile
 from pathlib import Path
 
-HERE = Path(__file__).resolve().parent
+def _base_dir():
+    """Frozen into an exe, anchor on the exe's folder rather than
+    PyInstaller's temporary extraction directory."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+HERE = _base_dir()
 BIN = HERE / "bin"
 
 FFMPEG_URL = ("https://github.com/BtbN/FFmpeg-Builds/releases/download/"

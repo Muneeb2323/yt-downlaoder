@@ -41,3 +41,10 @@ venv/
 Thumbs.db
 desktop.ini
 *.swp
+
+# ---------------------------------------------------------------------------
+# PyInstaller build output -- the exe is published via GitHub Releases
+# ---------------------------------------------------------------------------
+dist/
+build/
+*.spec

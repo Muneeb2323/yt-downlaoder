@@ -143,6 +143,41 @@ instead of going 1, 10, 100, 2.
 When in doubt at the counter, use **1**. It costs a little sharpness and is
 the one that does not come back as a complaint.
 
+## Long videos: "unsupported file" on a TV
+
+A music video plays fine, but a drama episode or film comes back
+*"unsupported file"* — or plays the sound with no picture. The codec is not
+the problem. Measured on three real files, all **H.264 Main, 854×480**, all
+identical except for length:
+
+| File | Length | Index (`moov`) | On a TV |
+|---|---|---|---|
+| Music video | 4.5 min | 0.20 MB | plays |
+| Drama episode | 45 min | 2.05 MB | fails |
+| Film | 87 min | 5.18 MB | fails |
+
+An MP4 carries a table indexing every single frame, and the TV must read all
+of it before it can show anything. That table grows with length, and cheap
+firmware allocates a fixed buffer for it — commonly 1–2 MB. Past that, the
+video track can't be read, so the set either refuses the file or falls back to
+playing just the audio.
+
+Re-encoding does **not** fix it (measured: 17% smaller, nowhere near enough).
+Fewer frames per file is what works, so the tool offers to split:
+
+```
+    1. Split anything over 15 minutes   (recommended for TVs)
+    2. Keep whole files
+```
+
+Splitting is a stream copy — seconds, and no quality lost. Cuts land on the
+nearest keyframe, and parts are named `... - Part 1.mp4`, `... - Part 2.mp4`.
+A 45-minute episode becomes three parts of about **0.68 MB** index each,
+comfortably inside what those players handle.
+
+If 15-minute parts still fail on a particularly stubborn set, go shorter —
+the index shrinks in proportion.
+
 ## USB stick advice
 
 - Format sticks as **FAT32** for the widest compatibility. **exFAT** if you

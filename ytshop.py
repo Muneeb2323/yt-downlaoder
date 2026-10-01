@@ -497,6 +497,62 @@ def make_mp3(src, dst, target, title=None, artist=None):
     return "converted to MP3 %s" % target["abr"], None
 
 
+def split_into_parts(path, minutes):
+    """
+    Break a long video into parts so cheap TVs will play it.
+
+    An MP4 carries a sample table indexing every frame, and a TV has to read
+    all of it before showing anything. That table grows with length -- on real
+    files: 0.2 MB for 4 minutes, 2.0 MB for 45, 5.2 MB for 87 -- and cheap
+    firmware gives up somewhere past 1-2 MB. That is why a music video plays
+    and a drama episode comes back "unsupported file", or plays with sound and
+    no picture, even though the codec, profile and resolution are identical.
+
+    Re-encoding barely helps (measured: 17% smaller). Fewer frames per file is
+    what actually works. This is a stream copy, so it is quick and costs no
+    quality; cuts land on the nearest keyframe.
+    """
+    probe = probe_media(path) or {}
+    duration = probe.get("duration") or 0.0
+    span = minutes * 60
+    if not span or duration <= span:
+        return [path]
+
+    # A leftover only becomes its own part when it is worth having. Otherwise
+    # the last part just runs longer -- without this, a 45-minute episode cut
+    # at 15 minutes ends with a five-second Part 4.
+    count = max(1, int(duration // span))
+    if duration - count * span > span * 0.25:
+        count += 1
+
+    parts = []
+    for i in range(count):
+        part = path.with_name("%s - Part %d%s" % (path.stem, i + 1, path.suffix))
+        last = (i == count - 1)
+        length = duration - i * span if last else span
+        cmd = [FFMPEG, "-y", "-v", "error", "-nostats", "-progress", "pipe:1",
+               "-ss", str(i * span)]
+        if not last:                            # the final part runs to the end
+            cmd += ["-t", str(span)]
+        cmd += ["-i", str(path), "-c", "copy",
+                "-movflags", "+faststart", str(part)]
+        code, _ = run_ffmpeg(cmd, length, "part %d of %d" % (i + 1, count))
+        if code != 0 or not part.exists():
+            for done in parts:                  # leave the whole file instead
+                try:
+                    done.unlink()
+                except OSError:
+                    pass
+            return [path]
+        parts.append(part)
+
+    try:
+        path.unlink()
+    except OSError:
+        pass
+    return parts
+
+
 def verify(path):
     info = probe_media(path)
     if not info:
@@ -630,7 +686,7 @@ def hook(d):
         print("\r    download complete, checking codecs...          ", end="", flush=True)
 
 
-def download_one(url, target, index=None, dest=None, pad=2):
+def download_one(url, target, index=None, dest=None, pad=2, split_minutes=0):
     dest = dest or OUT_DIR
     RAW_DIR.mkdir(exist_ok=True)
     dest.mkdir(parents=True, exist_ok=True)
@@ -686,14 +742,14 @@ def download_one(url, target, index=None, dest=None, pad=2):
             raw.unlink()
         except OSError:
             pass
-        return (None, err) if err else (final, action)
+        return (None, err) if err else ([final], action)
 
     final = dest / (stem + ".mp4")
 
     if target["height"] is None:                       # "Original" -- keep untouched
         kept = final.with_suffix(raw.suffix)
         raw.replace(kept)
-        return kept, "kept original (not converted)"
+        return [kept], "kept original (not converted)"
 
     action, err = make_compatible(
         raw, final, target,
@@ -705,7 +761,13 @@ def download_one(url, target, index=None, dest=None, pad=2):
         pass
     if err:
         return None, err
-    return final, action
+    if split_minutes:
+        parts = split_into_parts(final, split_minutes)
+        if len(parts) > 1:
+            return parts, "%s, split into %d parts" % (action, len(parts))
+        return parts, action
+
+    return [final], action
 
 
 # ---------------------------------------------------------------------------
@@ -790,6 +852,17 @@ def pick_media_type():
     return ask("  Choose 1-2 [default 1]: ", ["1", "2"], "1")
 
 
+def pick_split():
+    print("\n  Long videos fail on many TVs. The file's index grows with its")
+    print("  length, and cheap players give up partway through reading it --")
+    print("  that is the \"unsupported file\", and the sound-but-no-picture.")
+    print("  Splitting fixes it, takes seconds and costs no quality.\n")
+    print("    1. Split anything over 15 minutes   (recommended for TVs)")
+    print("    2. Keep whole files")
+    print()
+    return 15 if ask("  Choose 1-2 [default 1]: ", ["1", "2"], "1") == "1" else 0
+
+
 def pick_device_profile():
     print("\n  How should the file be prepared?\n")
     for key in sorted(DEVICE_PROFILES):
@@ -823,7 +896,8 @@ def pick_height(info, target):
 def report(path, note):
     size_mb = path.stat().st_size / 1024.0 ** 2
     print("\r    OK  %s" % path.name)
-    print("        %s" % note)
+    if note:
+        print("        %s" % note)
     print("        %s  |  %.1f MB" % (verify(path), size_mb))
     if path.stat().st_size > FAT32_LIMIT:
         print("        WARNING: over 4 GB -- will not copy onto a FAT32 USB stick.")
@@ -906,6 +980,11 @@ def main():
         if not is_playlist and target["height"] is not None:
             target = pick_height(fetch_info(url), target)
 
+    # Only worth asking for video headed to a TV -- audio and the untouched
+    # "Original" profile are not affected.
+    split_minutes = pick_split() if (media == "1"
+                                     and target["height"] is not None) else 0
+
     if is_playlist:
         # Keep each video's ORIGINAL playlist position in the filename, so a
         # 5-10 batch stays numbered 05..10 and still sorts correctly next to
@@ -930,19 +1009,22 @@ def main():
         # When only part of a playlist was picked, show the real position too.
         print(label if pos in (None, i) else "%s   (playlist #%d)" % (label, pos))
         try:
-            path, note = download_one(link, target, pos, dest, pad)
+            paths, note = download_one(link, target, pos, dest, pad, split_minutes)
         except Exception as exc:
             # The wall can appear partway through a long playlist.
             if looks_like_bot_wall(exc) and COOKIE_BROWSER is None \
                     and resolve_cookies(link, flat=False) is not None:
                 try:
-                    path, note = download_one(link, target, pos, dest, pad)
+                    paths, note = download_one(link, target, pos, dest, pad,
+                                               split_minutes)
                 except Exception as retry_exc:
-                    path, note = None, str(retry_exc).splitlines()[0][:160]
+                    paths, note = None, str(retry_exc).splitlines()[0][:160]
             else:
-                path, note = None, str(exc).splitlines()[0][:160]
-        if path:
-            report(path, note)
+                paths, note = None, str(exc).splitlines()[0][:160]
+        if paths:
+            report(paths[0], note)
+            for extra in paths[1:]:             # the remaining split parts
+                report(extra, "")
             ok += 1
         else:
             print("\r    FAILED  %s" % note)

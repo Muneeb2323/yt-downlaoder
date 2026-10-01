@@ -491,6 +491,20 @@ def make_compatible(src, dst, target, title=None, artist=None):
     if artist:
         cmd += ["-metadata", "artist=%s" % artist]
 
+    # Keep the container headers 32-bit.
+    #
+    # Left alone, ffmpeg picks a movie timescale from the audio rate -- 5644800
+    # here. The duration in those units passes 2^32 after about 760 seconds, so
+    # anything over ~12.7 minutes gets version 1 (64-bit) mvhd and elst boxes.
+    # Basic USB players on TVs only parse version 0 and sit on "loading"
+    # forever. A timescale of 1000 keeps a 24-hour file inside 32 bits.
+    #
+    # Verified against the same episode fetched by IDM, which plays on the TV:
+    # it uses exactly these -- mvhd v0, timescale 1000, no btrt.
+    cmd += ["-movie_timescale", "1000",   # 32-bit headers, matches IDM
+            "-use_editlist", "0",         # drop the edit list rather than emit v1
+            "-write_btrt", "0"]           # extra box IDM's file does not carry
+
     cmd += ["-movflags", "+faststart", str(dst)]       # moov atom to the front
 
     if v_ok and a_ok:

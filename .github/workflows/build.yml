@@ -70,15 +70,12 @@ jobs:
 
           Windows SmartScreen warns about unrecognised apps because the exe is not code-signed — choose **More info → Run anyway**."
 
-          gh release create latest --title "yt2tv (latest build)" --notes "$NOTES" \
-            || gh release edit latest --title "yt2tv (latest build)" --notes "$NOTES"
-
-          # Drop anything left over from an earlier name or build, so the page
-          # only ever offers the current exe.
-          gh release view latest --json assets -q '.assets[].name' \
-            | grep -vx 'yt2tv.exe' \
-            | while read -r stale; do
-                [ -n "$stale" ] && gh release delete-asset latest "$stale" --yes
-              done || true
-
-          gh release upload latest dist/yt2tv.exe --clobber
+          # Recreate rather than edit. The tag has to move to the commit just
+          # built: GitHub generates the "Source code" archives from the tag, so
+          # editing in place leaves the page offering source and a date from
+          # whenever the tag was first made. Deleting also clears assets left
+          # over from an earlier name, so only the current exe is ever listed.
+          gh release delete latest --yes --cleanup-tag || true
+          gh release create latest dist/yt2tv.exe \
+            --title "yt2tv (latest build)" \
+            --notes "$NOTES"

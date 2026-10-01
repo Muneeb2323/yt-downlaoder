@@ -148,6 +148,7 @@ AUDIO_PROFILE = {
 
 FFMPEG = None
 FFPROBE = None
+MP4BOX = None
 
 # YouTube increasingly answers plain requests with "Sign in to confirm you're
 # not a bot", especially once you download in volume. Borrowing cookies from
@@ -222,6 +223,45 @@ def ensure_js_runtime():
     return False
 
 
+def find_mp4box():
+    """
+    Locate MP4Box, which fixes how the file is chunked.
+
+    ffmpeg's MP4 muxer writes one chunk per video frame -- measured against a
+    file YouTube muxed itself, 1 sample per chunk versus 130. That leaves the
+    player scanning an enormous offset table every time you skip, which is
+    what makes seeking crawl on a TV. ffmpeg has no option to change it (the
+    only interleaving control applies to fragmented MP4, which TVs won't
+    play), so MP4Box does the job afterwards.
+
+    Optional: without it files still play, they are just slow to skip through.
+    """
+    from shutil import which
+    found = which("mp4box") or which("MP4Box")
+    if found:
+        return found
+    for base in (os.environ.get("PROGRAMFILES"),
+                 os.environ.get("PROGRAMFILES(X86)")):
+        if base:
+            candidate = Path(base) / "GPAC" / "mp4box.exe"
+            if candidate.exists():
+                return str(candidate)
+    local = HERE / "bin" / "mp4box.exe"
+    return str(local) if local.exists() else None
+
+
+def reinterleave(path):
+    """Re-chunk in place. Returns True when it worked."""
+    if not MP4BOX:
+        return False
+    try:
+        done = subprocess.run([MP4BOX, "-quiet", "-flat", str(path)],
+                              capture_output=True, text=True, timeout=1800)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0 and path.exists()
+
+
 def ensure_dependencies():
     """
     Fetch anything missing before we need it.
@@ -236,8 +276,9 @@ def ensure_dependencies():
                        and (HERE / "bin" / "ffprobe.exe").exists()) \
         and not (which("ffmpeg") and which("ffprobe"))
     need_deno = not ensure_js_runtime()
+    need_mp4box = find_mp4box() is None
 
-    if not (need_ffmpeg or need_deno):
+    if not (need_ffmpeg or need_deno or need_mp4box):
         return
 
     if bootstrap is None:
@@ -249,6 +290,8 @@ def ensure_dependencies():
     if need_deno:
         bootstrap.install_deno()
         ensure_js_runtime()                 # pick up the freshly installed one
+    if need_mp4box:
+        bootstrap.install_mp4box()
     print()
 
 
@@ -761,6 +804,10 @@ def download_one(url, target, index=None, dest=None, pad=2, split_minutes=0):
         pass
     if err:
         return None, err
+    # Re-chunk before any splitting, so each part inherits the fix.
+    if reinterleave(final):
+        action += ", re-chunked for smooth seeking"
+
     if split_minutes:
         parts = split_into_parts(final, split_minutes)
         if len(parts) > 1:
@@ -853,14 +900,13 @@ def pick_media_type():
 
 
 def pick_split():
-    print("\n  Long videos fail on many TVs. The file's index grows with its")
-    print("  length, and cheap players give up partway through reading it --")
-    print("  that is the \"unsupported file\", and the sound-but-no-picture.")
-    print("  Splitting fixes it, takes seconds and costs no quality.\n")
-    print("    1. Split anything over 15 minutes   (recommended for TVs)")
-    print("    2. Keep whole files")
+    print("\n  Whole files should now work on a TV -- the re-chunking step")
+    print("  fixes what used to break them. Splitting is only a fallback for")
+    print("  a set that still refuses a long video.\n")
+    print("    1. Keep whole files                 (recommended)")
+    print("    2. Split anything over 15 minutes   (if a TV still refuses)")
     print()
-    return 15 if ask("  Choose 1-2 [default 1]: ", ["1", "2"], "1") == "1" else 0
+    return 0 if ask("  Choose 1-2 [default 1]: ", ["1", "2"], "1") == "1" else 15
 
 
 def pick_device_profile():
@@ -904,7 +950,7 @@ def report(path, note):
 
 
 def main():
-    global FFMPEG, FFPROBE
+    global FFMPEG, FFPROBE, MP4BOX
 
     print("\n" + "=" * 68)
     print("  ytshop -- YouTube downloader with real device compatibility")
@@ -914,6 +960,11 @@ def main():
 
     FFMPEG = find_tool("ffmpeg")
     FFPROBE = find_tool("ffprobe")
+    MP4BOX = find_mp4box()
+
+    if not MP4BOX:
+        print("\n  Note: MP4Box not found, so files will be slow to skip")
+        print("  through on a TV. Install it with:  winget install GPAC.GPAC")
 
     if not ensure_js_runtime():
         print("\n  WARNING: no JavaScript runtime (Deno) found.")

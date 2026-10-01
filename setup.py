@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-setup.py -- prepares a fresh Windows PC to run ytshop.
+setup.py -- prepares a fresh Windows PC to run yt2tv.
 
 Download.bat calls this automatically before every run. It is cheap and safe
 to repeat: anything already installed is detected and skipped, so the normal
@@ -110,7 +110,7 @@ def install_ffmpeg():
     import urllib.request
 
     BIN.mkdir(exist_ok=True)
-    archive = Path(os.environ.get("TEMP", ".")) / "ffmpeg-ytshop.zip"
+    archive = Path(os.environ.get("TEMP", ".")) / "ffmpeg-yt2tv.zip"
     print("      this is a one-time ~180 MB download, please wait...")
 
     try:
@@ -180,48 +180,6 @@ def find_deno():
     return (BIN / "deno.exe").exists()
 
 
-def find_mp4box():
-    if shutil.which("mp4box") or shutil.which("MP4Box"):
-        return True
-    for base in (os.environ.get("PROGRAMFILES"),
-                 os.environ.get("PROGRAMFILES(X86)")):
-        if base and (Path(base) / "GPAC" / "mp4box.exe").exists():
-            return True
-    return (BIN / "mp4box.exe").exists()
-
-
-def install_mp4box():
-    """
-    MP4Box re-chunks the finished file. ffmpeg writes one chunk per video
-    frame, which leaves a TV scanning a huge offset table whenever you skip --
-    measured against a YouTube-muxed file, 1 sample per chunk versus 130.
-    ffmpeg cannot be configured around it, so GPAC does the job afterwards.
-    """
-    if find_mp4box():
-        ok("MP4Box already installed")
-        return True
-
-    if not shutil.which("winget"):
-        warn("winget not available, so MP4Box can't be installed automatically.")
-        warn("Get GPAC from https://gpac.io/downloads/ -- without it, videos")
-        warn("still play but are slow to skip through on a TV.")
-        return False
-
-    print("      installing GPAC (MP4Box) via winget...")
-    result = subprocess.run(
-        ["winget", "install", "--id", "GPAC.GPAC", "--source", "winget",
-         "--accept-source-agreements", "--accept-package-agreements",
-         "--disable-interactivity"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-    if find_mp4box():
-        ok("MP4Box installed")
-        return True
-    warn("GPAC install did not complete (winget exit %d)." % result.returncode)
-    warn("Get it from https://gpac.io/downloads/ and run this again.")
-    return False
-
-
 def install_deno():
     if find_deno():
         ok("Deno already installed")
@@ -252,18 +210,16 @@ def install_deno():
 
 def main():
     print("=" * 68)
-    print("  ytshop setup -- checking what this PC needs")
+    print("  yt2tv setup -- checking what this PC needs")
     print("=" * 68)
 
     results = []
-    step(1, 4, "Python packages")
+    step(1, 3, "Python packages")
     results.append(install_packages())
-    step(2, 4, "ffmpeg (video conversion)")
+    step(2, 3, "ffmpeg (video conversion)")
     results.append(install_ffmpeg())
-    step(3, 4, "Deno (needed to unlock YouTube streams)")
+    step(3, 3, "Deno (needed to unlock YouTube streams)")
     results.append(install_deno())
-    step(4, 4, "MP4Box (makes files seek smoothly on a TV)")
-    results.append(install_mp4box())
 
     print("\n" + "=" * 68)
     if all(results):

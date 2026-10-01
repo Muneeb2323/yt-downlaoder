@@ -6,12 +6,12 @@ REM  You can also drag a YouTube link onto this file.
 REM ---------------------------------------------------------------------
 setlocal
 cd /d "%~dp0"
-title ytshop
+title yt2tv
 
 where python >nul 2>&1
 if errorlevel 1 goto nopython
 
-if not exist "ytshop.py" goto nofiles
+if not exist "yt2tv.py" goto nofiles
 
 REM Fast when everything is already installed; does the work when it isn't.
 python setup.py
@@ -19,9 +19,9 @@ if errorlevel 1 goto setupfailed
 
 REM Passing an empty argument would look like a blank link, so branch on it.
 if "%~1"=="" (
-    python ytshop.py
+    python yt2tv.py
 ) else (
-    python ytshop.py "%~1"
+    python yt2tv.py "%~1"
 )
 
 echo.
@@ -41,8 +41,8 @@ exit /b 1
 
 :nofiles
 echo.
-echo   ytshop.py is missing from this folder.
-echo   Keep Download.bat, setup.py and ytshop.py together.
+echo   yt2tv.py is missing from this folder.
+echo   Keep Download.bat, setup.py and yt2tv.py together.
 echo.
 pause
 exit /b 1

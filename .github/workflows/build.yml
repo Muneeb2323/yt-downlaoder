@@ -32,7 +32,7 @@ jobs:
 
       - name: Sanity-check the sources before bundling
         run: |
-          python -m py_compile ytshop.py setup.py
+          python -m py_compile yt2tv.py setup.py
 
       # --collect-all yt_dlp is required: yt-dlp loads its extractors
       # dynamically, so PyInstaller's static analysis misses nearly all of
@@ -40,26 +40,26 @@ jobs:
       - name: Build exe
         run: >
           python -m PyInstaller --noconfirm --onefile --console
-          --name ytshop
+          --name yt2tv
           --collect-all yt_dlp
           --collect-all yt_dlp_ejs
           --hidden-import setup
           --hidden-import unidecode
-          ytshop.py
+          yt2tv.py
 
       - name: Check the exe actually starts
         shell: bash
         run: |
           # No link given: it should print its banner and exit cleanly rather
           # than crash, which catches a missing bundled import.
-          echo "" | ./dist/ytshop.exe || true
-          test -f dist/ytshop.exe
+          echo "" | ./dist/yt2tv.exe || true
+          test -f dist/yt2tv.exe
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ytshop-windows
-          path: dist/ytshop.exe
+          name: yt2tv-windows
+          path: dist/yt2tv.exe
 
       - name: Publish to the rolling "latest" release
         shell: bash
@@ -67,7 +67,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create latest \
-            --title "ytshop (latest build)" \
-            --notes "Latest Windows build. Download **ytshop.exe**, put it in an empty folder and run it. On first launch it downloads ffmpeg and Deno itself; after that it starts straight away. No Python needed." \
+            --title "yt2tv (latest build)" \
+            --notes "Latest Windows build. Download **yt2tv.exe**, put it in an empty folder and run it. On first launch it downloads ffmpeg and Deno itself; after that it starts straight away. No Python needed." \
             || echo "release already exists"
-          gh release upload latest dist/ytshop.exe --clobber
+          gh release upload latest dist/yt2tv.exe --clobber

@@ -861,24 +861,25 @@ def pick_device_profile():
     return DEVICE_PROFILES[choice]
 
 
-def pick_height(info, target):
+def show_height(info, target):
+    """
+    Say what the download will actually be.
+
+    This used to ask a second question, but the profile already sets the
+    resolution -- two prompts deciding the same thing is one decision too
+    many at a counter. Picking a different resolution means picking a
+    different profile.
+    """
     heights = available_heights(info)
     if not heights:
-        return target
-    print("\n  Resolutions available for this video:\n")
-    options = {}
-    for i, (h, native) in enumerate(heights, 1):
-        tag = "native H.264, fast" if native else "needs converting, slower"
-        options[str(i)] = h
-        print("    %d. %dp  (%s)" % (i, h, tag))
-    print("\n  Your profile (%s) caps this at %dp."
-          % (target["name"], target["height"]))
-    valid = list(options.keys()) + [""]
-    choice = ask("  Pick 1-%d, or press Enter to use the cap: " % len(heights),
-                 valid, "")
-    if choice:
-        return dict(target, height=min(options[choice], target["height"]))
-    return target
+        return
+    best = heights[0][0]
+    getting = min(best, target["height"])
+    if best <= target["height"]:
+        print("  Best available: %dp  ->  downloading %dp" % (best, getting))
+    else:
+        print("  Best available: %dp, capped by %s  ->  downloading %dp"
+              % (best, target["name"], getting))
 
 
 def report(path, note):
@@ -971,7 +972,7 @@ def main():
     else:
         target = pick_device_profile()
         if not is_playlist and target["height"] is not None:
-            target = pick_height(fetch_info(url), target)
+            show_height(fetch_info(url), target)
 
     if is_playlist:
         # Keep each video's ORIGINAL playlist position in the filename, so a

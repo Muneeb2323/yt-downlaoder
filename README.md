@@ -2,9 +2,14 @@
 
 Download YouTube videos and playlists as files that **actually play on a TV**.
 
-Point it at a link, pick a profile, and you get an MP4 that works on cheap LED
+Point it at a link, pick a profile, and you get a file that works on cheap LED
 and LCD sets, USB media players and car screens — not just on the PC that made
 it.
+
+- **Single videos or whole playlists** — paste either link, it detects which
+- **Part of a playlist** — `1-5`, `3,7,9`, `10-`, or all of it
+- **Video or audio** — MP4 for a TV, or MP3 for a phone, car stereo or speaker
+- **Four device profiles** — from H.264 Baseline 480p up to High 1080p
 
 ```
   What do you want?
@@ -76,11 +81,10 @@ bitstream, different container headers.
 
 ## What it does
 
-- **Video or audio.** MP4 for TVs, or 192 kbps MP3 with ID3v2.3 tags for car
-  stereos (2.3 deliberately — many head units show nothing for 2.4 tags).
-- **Four device profiles**, from H.264 Baseline 480p up to High 1080p.
-- **Playlists**, with range selection — `1-5`, `3,7,9`, `10-`, or all. Each
-  playlist gets its own folder, numbered so a TV sorts them correctly.
+- **Audio mode** gives 192 kbps MP3 with ID3v2.3 tags, so a car stereo shows
+  the track name (2.3 deliberately — many head units show nothing for 2.4).
+- **Each playlist gets its own folder**, numbered so a TV sorts the episodes in
+  order — `001 -` and up once a playlist passes 100 videos.
 - **Smart conversion.** Probes codec, profile, level, pixel format, frame rate
   and channels; remuxes losslessly when it can, converts only the stream that
   needs it.

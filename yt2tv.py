@@ -178,6 +178,29 @@ for _stream in (sys.stdout, sys.stderr):
 # tool discovery
 # ---------------------------------------------------------------------------
 
+CRASH_LOG = HERE / "error.log"
+
+
+def log_crash(exc, context=""):
+    """
+    Append a full traceback to error.log.
+
+    A failure part way through a long playlist scrolls off the screen, and the
+    window often closes before anyone can read it. Keeping the detail on disk
+    means it can actually be diagnosed afterwards.
+    """
+    import datetime
+    import traceback
+    try:
+        with CRASH_LOG.open("a", encoding="utf-8", errors="replace") as fh:
+            fh.write("\n=== %s  %s\n"
+                     % (datetime.datetime.now().isoformat(timespec="seconds"),
+                        context))
+            traceback.print_exception(type(exc), exc, exc.__traceback__, file=fh)
+    except OSError:
+        pass
+
+
 def find_tool(name):
     """Prefer the copy bundled in ./bin so this folder stays portable."""
     local = HERE / "bin" / (name + ".exe")
@@ -954,16 +977,24 @@ def main():
                 try:
                     paths, note = download_one(link, target, pos, dest, pad)
                 except Exception as retry_exc:
+                    log_crash(retry_exc, "retry of %s" % title)
                     paths, note = None, str(retry_exc).splitlines()[0][:160]
             else:
+                log_crash(exc, "downloading %s" % title)
                 paths, note = None, str(exc).splitlines()[0][:160]
-        if paths:
-            report(paths[0], note)
-            for extra in paths[1:]:             # the remaining split parts
-                report(extra, "")
-            ok += 1
-        else:
-            print("\r    FAILED  %s" % note)
+        # Reporting runs inside its own guard too. One unreadable file must
+        # never end a fifty-song playlist half way through.
+        try:
+            if paths:
+                for n, produced in enumerate(paths):
+                    report(produced, note if n == 0 else "")
+                ok += 1
+            else:
+                print("\r    FAILED  %s" % note)
+                failed.append(title)
+        except Exception as exc:
+            log_crash(exc, "reporting %s" % title)
+            print("\r    FAILED  %s" % str(exc).splitlines()[0][:160])
             failed.append(title)
         print()
 
@@ -987,3 +1018,9 @@ if __name__ == "__main__":
         main()
     except KeyboardInterrupt:
         print("\n\n  Stopped.\n")
+    except Exception as unhandled:          # noqa: BLE001 - last resort
+        log_crash(unhandled, "unhandled")
+        print("\n\n  Something went wrong: %s"
+              % str(unhandled).splitlines()[0][:160])
+        print("  The full details were written to:\n    %s" % CRASH_LOG)
+        print("  Send that file if you want it looked at.\n")

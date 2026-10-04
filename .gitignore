@@ -48,3 +48,6 @@ desktop.ini
 dist/
 build/
 *.spec
+
+# Crash log written next to the tool
+error.log

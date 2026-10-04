@@ -161,8 +161,12 @@ COOKIE_BROWSER = None
 # beside this script we use it in preference to everything else.
 COOKIE_FILE = HERE / "cookies.txt"
 
-BOT_WALL = ("sign in to confirm", "not a bot", "confirm your age",
-            "please sign in", "unable to download api page")
+BOT_WALL = ("not a bot", "please sign in", "unable to download api page")
+
+# Age gates look similar but are a different problem. The cookies are fine --
+# YouTube wants an account it considers age-verified for that one video. Trying
+# other browsers cannot help, so these must not trigger the cookie hunt.
+AGE_WALL = ("confirm your age", "age-restricted", "inappropriate for some")
 
 # A Windows console is usually cp1252, which cannot encode Hindi, Urdu or
 # Arabic titles -- printing one would raise UnicodeEncodeError and kill the
@@ -579,9 +583,47 @@ def add_cookies(opts, browser=None):
     return opts
 
 
+class QuietLogger(object):
+    """
+    Swallow yt-dlp's own console output.
+
+    yt-dlp writes ERROR lines straight to stderr even with quiet set, so a
+    single failure buried the screen in raw tracebacks about browsers the
+    user does not even have installed. We report failures ourselves, and the
+    detail goes to error.log.
+    """
+
+    def debug(self, msg):
+        pass
+
+    def info(self, msg):
+        pass
+
+    def warning(self, msg):
+        pass
+
+    def error(self, msg):
+        pass
+
+
 def looks_like_bot_wall(exc):
     text = str(exc).lower()
     return any(phrase in text for phrase in BOT_WALL)
+
+
+def looks_age_restricted(exc):
+    text = str(exc).lower()
+    return any(phrase in text for phrase in AGE_WALL)
+
+
+def short_error(exc):
+    """yt-dlp errors carry a wiki URL and a flag suggestion. Keep the reason."""
+    text = str(exc).splitlines()[0]
+    text = re.sub(r"^ERROR:\s*", "", text)
+    text = re.sub(r"\[[\w:.]+\]\s*[\w-]*:?\s*", "", text, count=1)
+    for noise in (" Use --cookies", " See  http", " See http"):
+        text = text.split(noise)[0]
+    return text.strip()[:120]
 
 
 def explain_cookie_error(exc):
@@ -597,7 +639,7 @@ def explain_cookie_error(exc):
 
 
 def fetch_info(url, flat=False, browser=None):
-    opts = {"quiet": True, "no_warnings": True}
+    opts = {"quiet": True, "no_warnings": True, "logger": QuietLogger()}
     if flat:
         opts["extract_flat"] = "in_playlist"
     with yt_dlp.YoutubeDL(add_cookies(opts, browser)) as ydl:
@@ -685,6 +727,7 @@ def download_one(url, target, index=None, dest=None, pad=2):
         "outtmpl": str(RAW_DIR / "%(id)s.%(ext)s"),
         "quiet": True,
         "no_warnings": True,
+        "logger": QuietLogger(),     # we print our own failures
         "noprogress": True,          # else yt-dlp's own bar fights our hook
         "noplaylist": True,
         "progress_hooks": [hook],
@@ -860,7 +903,9 @@ def show_height(info, target):
 
 def report(path, note):
     size_mb = path.stat().st_size / 1024.0 ** 2
-    print("\r    OK  %s" % path.name)
+    # Padded so a short name fully overwrites the longer progress line it
+    # replaces, otherwise the tail of "making mp3 100% 87x" stays on screen.
+    print("\r%-72s" % ("    OK  " + path.name))
     if note:
         print("        %s" % note)
     print("        %s  |  %.1f MB" % (verify(path), size_mb))
@@ -971,17 +1016,23 @@ def main():
         try:
             paths, note = download_one(link, target, pos, dest, pad)
         except Exception as exc:
-            # The wall can appear partway through a long playlist.
-            if looks_like_bot_wall(exc) and COOKIE_BROWSER is None \
+            log_crash(exc, "downloading %s" % title)
+            if looks_age_restricted(exc):
+                # Nothing to retry: the cookies are working, YouTube just
+                # wants an age-verified account for this particular video.
+                paths, note = None, "age-restricted, skipped"
+            elif looks_like_bot_wall(exc) and COOKIE_BROWSER is None \
+                    and not COOKIE_FILE.exists() \
                     and resolve_cookies(link, flat=False) is not None:
+                # Only worth hunting for browser cookies when there is no
+                # cookies.txt, which takes precedence over them anyway.
                 try:
                     paths, note = download_one(link, target, pos, dest, pad)
                 except Exception as retry_exc:
                     log_crash(retry_exc, "retry of %s" % title)
-                    paths, note = None, str(retry_exc).splitlines()[0][:160]
+                    paths, note = None, short_error(retry_exc)
             else:
-                log_crash(exc, "downloading %s" % title)
-                paths, note = None, str(exc).splitlines()[0][:160]
+                paths, note = None, short_error(exc)
         # Reporting runs inside its own guard too. One unreadable file must
         # never end a fifty-song playlist half way through.
         try:

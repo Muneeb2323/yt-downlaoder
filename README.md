@@ -11,24 +11,11 @@ it.
 - **Video or audio** — MP4 for a TV, or MP3 for a phone, car stereo or speaker
 - **Four device profiles** — from H.264 Baseline 480p up to High 1080p
 
-```
-  What do you want?
+![yt2tv downloading a playlist](docs/demo.png)
 
-    1. Video  (MP4 for a TV or USB player)
-    2. Audio  (MP3 for a phone, car stereo or speaker)
-
-  Choose 1-2 [default 1]: 1
-
-  How should the file be prepared?
-
-    1. TV-Safe 720p               H.264 Main + AAC. Plays on practically every LED/LCD TV and USB player.
-    2. Smart TV 1080p             H.264 High + AAC. For TVs from roughly 2014 onward.
-    3. Basic 480p                 H.264 Baseline + AAC. Last resort for very old players and car screens.
-    4. Original (no conversion)   Whatever YouTube has, untouched. Best quality, PC playback only.
-
-  Choose 1-4 [default 1]: 1
-  Best available: 1080p, capped by TV-Safe 720p  ->  downloading 720p
-```
+Two questions, then it works. Notice the last line of each download — it reports
+the codec, profile, level and pixel format of the file it just produced, so you
+can see it is actually TV-safe rather than hope so.
 
 ## Quick start
 
